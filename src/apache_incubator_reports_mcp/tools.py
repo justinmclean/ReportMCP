@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from apache_incubator_reports_mcp import schemas
+from apache_incubator_reports_mcp.parser import (
+    ASF_REPORTS_REPO_URL,
+    DEFAULT_CACHE_DIR,
+    cache_report_url,
+    cache_reports_from_repo,
+    find_report,
+    list_podlings as parser_list_podlings,
+    load_reports,
+    podling_reports,
+    report_summary,
+    reports_overview,
+    search_reports as parser_search_reports,
+)
+
+_CONFIGURED_CACHE_DIR: str | None = None
+_CONFIGURED_REPO_URL: str | None = None
+
+
+def configure_defaults(
+    cache_dir: str | None = None,
+    repo_url: str | None = None,
+) -> None:
+    global _CONFIGURED_CACHE_DIR, _CONFIGURED_REPO_URL
+    if cache_dir:
+        _CONFIGURED_CACHE_DIR = cache_dir
+    if repo_url:
+        _CONFIGURED_REPO_URL = repo_url
+
+
+def require_non_empty_string(value: Any, key: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"'{key}' must be a string")
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"'{key}' must be a non-empty string")
+    return stripped
+
+
+def optional_string(value: Any, key: str) -> str | None:
+    if value is None:
+        return None
+    return require_non_empty_string(value, key)
+
+
+def require_limit(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("'limit' must be an integer")
+    if value <= 0:
+        raise ValueError("'limit' must be greater than 0")
+    return value
+
+
+def resolve_cache_dir(value: str | None = None) -> str:
+    return optional_string(value, "cache_dir") or _CONFIGURED_CACHE_DIR or DEFAULT_CACHE_DIR
+
+
+def resolve_repo_url(value: str | None = None) -> str:
+    return optional_string(value, "repo_url") or _CONFIGURED_REPO_URL or ASF_REPORTS_REPO_URL
+
+
+def resolve_reports_dir(
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> str:
+    if reports_dir is not None:
+        return require_non_empty_string(reports_dir, "reports_dir")
+    resolved_cache_dir = resolve_cache_dir(cache_dir)
+    if refresh or not Path(resolved_cache_dir).expanduser().exists():
+        cache_all_reports(cache_dir=resolved_cache_dir)
+    return resolved_cache_dir
+
+
+def incubator_reports_overview(
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Return a high-level summary of cached ASF Incubator reports."""
+    return reports_overview(resolve_reports_dir(reports_dir, cache_dir, refresh))
+
+
+def cache_all_reports(
+    repo_url: str | None = None,
+    cache_dir: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Download approved ASF Incubator reports into the local cache."""
+    resolved_limit = require_limit(limit) if limit is not None else None
+    return cache_reports_from_repo(
+        repo_url=resolve_repo_url(repo_url),
+        cache_dir=resolve_cache_dir(cache_dir),
+        limit=resolved_limit,
+    )
+
+
+def cache_report(url: str, cache_dir: str | None = None, report_id: str | None = None) -> dict[str, Any]:
+    """Download one Incubator report URL into the local cache."""
+    return cache_report_url(
+        require_non_empty_string(url, "url"),
+        cache_dir=resolve_cache_dir(cache_dir),
+        report_id=optional_string(report_id, "report_id"),
+    )
+
+
+def list_reports(
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """List cached Incubator report documents."""
+    reports = load_reports(resolve_reports_dir(reports_dir, cache_dir, refresh))
+    return {
+        "count": len(reports),
+        "reports": [
+            {
+                "report_id": report.report_id,
+                "title": report.title,
+                "report_period": report.report_period,
+                "podling_count": len(report.podling_reports),
+                "path": report.path,
+                "source_url": report.source_url,
+                "cached_at": report.cached_at,
+            }
+            for report in reports
+        ],
+    }
+
+
+def list_podlings(
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """List podlings that appear in cached Incubator reports."""
+    resolved = resolve_reports_dir(reports_dir, cache_dir, refresh)
+    return {
+        "reports_dir": resolved,
+        "podlings": parser_list_podlings(resolved),
+    }
+
+
+def search_reports(
+    query: str,
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Search cached Incubator reports by text or podling name."""
+    resolved_limit = require_limit(limit)
+    rows = parser_search_reports(
+        resolve_reports_dir(reports_dir, cache_dir, refresh),
+        require_non_empty_string(query, "query"),
+    )
+    return {"query": query, "count": len(rows), "results": rows[:resolved_limit]}
+
+
+def get_report_summary(
+    report_id: str,
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Return parsed summary details for one cached Incubator report."""
+    report = find_report(
+        resolve_reports_dir(reports_dir, cache_dir, refresh),
+        require_non_empty_string(report_id, "report_id"),
+    )
+    return report_summary(report)
+
+
+def get_report_markdown(
+    report_id: str,
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> str:
+    """Return the raw text for one cached Incubator report."""
+    report = find_report(
+        resolve_reports_dir(reports_dir, cache_dir, refresh),
+        require_non_empty_string(report_id, "report_id"),
+    )
+    return report.raw_text
+
+
+def get_podling_reports(
+    podling: str,
+    reports_dir: str | None = None,
+    cache_dir: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Return all cached report entries for one podling."""
+    resolved_podling = require_non_empty_string(podling, "podling")
+    rows = podling_reports(
+        resolve_reports_dir(reports_dir, cache_dir, refresh),
+        resolved_podling,
+    )
+    return {"podling": resolved_podling, "count": len(rows), "reports": rows}
+
+
+TOOLS: dict[str, dict[str, Any]] = {
+    "incubator_reports_overview": schemas.tool_definition(
+        description="Return a high-level summary of cached ASF Incubator reports.",
+        handler=incubator_reports_overview,
+        properties=schemas.base_properties(),
+    ),
+    "cache_all_reports": schemas.tool_definition(
+        description="Download approved ASF Incubator reports into the local cache.",
+        handler=cache_all_reports,
+        properties=schemas.repo_cache_properties(),
+    ),
+    "cache_report": schemas.tool_definition(
+        description="Download one Incubator report URL into the local cache.",
+        handler=cache_report,
+        properties=schemas.url_cache_properties(),
+        required=["url"],
+    ),
+    "list_reports": schemas.tool_definition(
+        description="List cached Incubator report documents.",
+        handler=list_reports,
+        properties=schemas.base_properties(),
+    ),
+    "list_podlings": schemas.tool_definition(
+        description="List podlings that appear in cached Incubator reports.",
+        handler=list_podlings,
+        properties=schemas.base_properties(),
+    ),
+    "search_reports": schemas.tool_definition(
+        description="Search cached Incubator reports by text or podling name.",
+        handler=search_reports,
+        properties=schemas.search_properties(),
+        required=["query"],
+    ),
+    "get_report_summary": schemas.tool_definition(
+        description="Return parsed summary details for one cached Incubator report.",
+        handler=get_report_summary,
+        properties=schemas.report_properties(),
+        required=["report_id"],
+    ),
+    "get_report_markdown": schemas.tool_definition(
+        description="Return the raw text for one cached Incubator report.",
+        handler=get_report_markdown,
+        properties=schemas.report_properties(),
+        required=["report_id"],
+    ),
+    "get_podling_reports": schemas.tool_definition(
+        description="Return all cached report entries for one podling.",
+        handler=get_podling_reports,
+        properties=schemas.podling_properties(),
+        required=["podling"],
+    ),
+}
