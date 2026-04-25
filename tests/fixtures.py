@@ -10,9 +10,11 @@ SAMPLE_REPORT = dedent(
     """\
     # Incubator Report April 2026
 
-    ## Podlings
+    ## Table of Contents
+    [Alpha](#alpha)
+    [Bravo](#bravo)
 
-    ### Alpha
+    ## Alpha
 
     Alpha has been incubating since 2025-01-01.
 
@@ -32,7 +34,7 @@ SAMPLE_REPORT = dedent(
       [x] (alpha) Mentor One
       [ ] (alpha) Mentor Two
 
-    ### Bravo
+    ## Bravo
 
     Bravo has been incubating since 2024-07-01.
 

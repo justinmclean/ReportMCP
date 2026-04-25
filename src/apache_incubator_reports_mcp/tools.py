@@ -136,6 +136,8 @@ def list_reports(
                 "report_id": report.report_id,
                 "title": report.title,
                 "report_period": report.report_period,
+                "source_status": report.source_status,
+                "source_status_note": report.source_status_note,
                 "podling_count": len(report.podling_reports),
                 "path": report.path,
                 "source_url": report.source_url,

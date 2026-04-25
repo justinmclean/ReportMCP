@@ -13,36 +13,20 @@ from typing import Any
 
 DEFAULT_REPORTS_DIR = "reports"
 DEFAULT_CACHE_DIR = ".cache/incubator-reports"
-ASF_REPORTS_REPO_URL = "https://whimsy.apache.org/board/minutes/Incubator.html"
+ASF_REPORTS_REPO_URL = "https://apache.org/foundation/records/minutes/"
 SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt", ".html", ".htm"}
-GENERIC_HEADINGS = {
-    "abstract",
-    "board motion",
-    "community",
-    "content",
-    "incubator",
-    "incubator report",
-    "incubator reports",
-    "legal / trademarks",
-    "legal/trademarks",
-    "new podlings",
-    "not yet ready to graduate",
-    "are there any issues that the ipmc or asf board need to be aware of?",
-    "have your mentors been helpful and responsive?",
-    "how has the community developed since the last report?",
-    "how has the project developed since the last report?",
-    "how would you assess the podling's maturity?",
-    "ipmc/shepherd notes:",
-    "is the ppmc managing the podling's brand / trademarks?",
-    "when were the last committers or ppmc members elected?",
-    "podlings",
-    "podlings that failed to report",
-    "ready to graduate",
-    "report",
-    "shepherd assignments",
-    "signed-off-by",
-    "status",
-}
+BOARD_MINUTES_URL_RE = re.compile(r"board_minutes_\d{4}_\d{2}_\d{2}\.txt$", re.IGNORECASE)
+BOARD_MINUTES_PERIOD_RE = re.compile(r"board_minutes_(20\d{2})_(0[1-9]|1[0-2])_\d{2}\.txt", re.IGNORECASE)
+TOC_LINK_RE = re.compile(r"^\[(?P<label>[^\]]+)\]\(#(?P<anchor>[^)]+)\)$")
+INCUBATOR_ATTACHMENT_RE = re.compile(
+    r"Attachment [A-Z]+: Report from the Apache Incubator Project.*?"
+    r"(?P<body># Incubator PMC report.*?)(?=\n-{20,}\n(?:Attachment [A-Z]+:|End of minutes)|\Z)",
+    re.DOTALL,
+)
+INCUBATOR_NO_REPORT_RE = re.compile(
+    r"Apache Incubator Project \[.*?\]\s+No report was submitted\.",
+    re.DOTALL,
+)
 DATE_PATTERNS = [
     re.compile(r"\b(20\d{2})[-_/ ](0?[1-9]|1[0-2])\b"),
     re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)"),
@@ -71,7 +55,7 @@ MONTHS = {
     "november": "11",
     "december": "12",
 }
-HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$", re.MULTILINE)
+HEADING_RE = re.compile(r"^[ \t]*(#{1,6})\s+(.+?)\s*#*\s*$", re.MULTILINE)
 HTML_HEADING_RE = re.compile(r"<h([1-6])[^>]*>(.*?)</h\1>", re.IGNORECASE | re.DOTALL)
 HTML_BLOCK_RE = re.compile(r"</(?:p|div|li|tr|h[1-6])>", re.IGNORECASE)
 TAG_RE = re.compile(r"<[^>]+>")
@@ -152,6 +136,8 @@ class ParsedReport:
     generated_on: str | None
     podling_reports: list[PodlingReport]
     raw_text: str
+    source_status: str = "report_present"
+    source_status_note: str | None = None
     source_url: str | None = None
     cached_at: str | None = None
 
@@ -162,6 +148,8 @@ class ParsedReport:
             "path": self.path,
             "report_period": self.report_period,
             "generated_on": self.generated_on,
+            "source_status": self.source_status,
+            "source_status_note": self.source_status_note,
             "source_url": self.source_url,
             "cached_at": self.cached_at,
             "podling_count": len(self.podling_reports),
@@ -206,6 +194,9 @@ def normalize_text(text: str, suffix: str = "") -> str:
 
 def report_period_from_text(*values: str) -> str | None:
     haystack = " ".join(value for value in values if value)
+    board_minutes_match = BOARD_MINUTES_PERIOD_RE.search(haystack)
+    if board_minutes_match:
+        return f"{int(board_minutes_match.group(1)):04d}-{int(board_minutes_match.group(2)):02d}"
     for pattern in DATE_PATTERNS:
         match = pattern.search(haystack)
         if not match:
@@ -241,9 +232,8 @@ def _within_years_window(
         return True
 
     current = now or datetime.now(UTC)
-    current_index = current.year * 12 + current.month
-    report_index = period_key[0] * 12 + period_key[1]
-    return report_index >= current_index - (years * 12)
+    earliest_year = current.year - years + 1
+    return period_key[0] >= earliest_year
 
 
 def _title_from_text(text: str, fallback: str) -> str:
@@ -269,27 +259,36 @@ def _sections(text: str) -> list[tuple[int, str, str]]:
     return sections
 
 
-def _looks_like_podling_section(heading: str, body: str) -> bool:
-    normalized = heading.casefold().strip()
-    if not normalized or normalized in GENERIC_HEADINGS:
+def _normalize_podling_key(value: str) -> str:
+    cleaned = _clean_podling_name(value)
+    return re.sub(r"[^a-z0-9]+", "", cleaned.casefold())
+
+
+def _table_of_contents_podlings(sections: list[tuple[int, str, str]]) -> set[str]:
+    for _level, heading, body in sections:
+        if heading.casefold().strip().rstrip(":").strip() != "table of contents":
+            continue
+        names: set[str] = set()
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            match = TOC_LINK_RE.match(line)
+            if not match:
+                continue
+            names.add(_normalize_podling_key(match.group("label")))
+        return names
+    return set()
+def _is_podling_section(
+    level: int,
+    heading: str,
+    toc_podlings: set[str],
+) -> bool:
+    if level == 1 or level > 4:
         return False
-    if "incubator pmc report" in normalized:
+    if not toc_podlings:
         return False
-    if normalized.endswith("?"):
-        return False
-    if len(heading) > 80:
-        return False
-    body_fold = body.casefold()
-    signals = [
-        "incubat",
-        "signed-off-by",
-        "signed off by",
-        "date of last release",
-        "three most important",
-        "community developed",
-        "project developed",
-    ]
-    return any(signal in body_fold for signal in signals)
+    return _normalize_podling_key(heading) in toc_podlings
 
 
 def _clean_podling_name(heading: str) -> str:
@@ -305,19 +304,42 @@ def _extract_issues(body: str) -> list[str]:
     if start < 0:
         return []
     block = body[start : start + 1200]
-    lines = []
+    lines: list[str] = []
+    current_item: str | None = None
     for raw_line in block.splitlines()[1:]:
         stripped = raw_line.strip()
         if not stripped:
+            if current_item:
+                lines.append(_strip_markdown(current_item))
+                current_item = None
             if lines:
                 break
             continue
         if re.match(r"^(how|date of|when were|signed[- ]off|shepherd)", stripped, re.IGNORECASE):
+            if current_item:
+                lines.append(_strip_markdown(current_item))
             break
-        item = re.sub(r"^[-*]\s+", "", stripped)
-        item = re.sub(r"^\d+[.)]\s+", "", item)
-        if item and not item.endswith(":"):
-            lines.append(_strip_markdown(item))
+
+        bullet_item = re.sub(r"^[-*]\s+", "", stripped)
+        bullet_item = re.sub(r"^\d+[.)]\s+", "", bullet_item)
+        is_new_item = bullet_item != stripped
+
+        if is_new_item:
+            if current_item:
+                lines.append(_strip_markdown(current_item))
+            if bullet_item and not bullet_item.endswith(":"):
+                current_item = bullet_item
+            else:
+                current_item = None
+            continue
+
+        if current_item:
+            current_item = f"{current_item} {stripped}"
+        elif stripped and not stripped.endswith(":"):
+            current_item = stripped
+
+    if current_item:
+        lines.append(_strip_markdown(current_item))
     return lines[:5]
 
 
@@ -342,6 +364,31 @@ def _extract_first(pattern: re.Pattern[str], body: str) -> str | None:
     return value or None
 
 
+def _source_status_from_text(text: str) -> tuple[str, str | None]:
+    normalized = text.casefold()
+    if "no report was submitted" in normalized:
+        return "no_report_submitted", "No report was submitted."
+    if "awaiting the approval of the board minutes" in normalized:
+        return "awaiting_board_approval", "Report was filed, but display is awaiting the approval of the Board minutes."
+    return "report_present", None
+
+
+def _extract_incubator_report_text(text: str, source_url: str) -> tuple[str, str, str | None]:
+    attachment_match = INCUBATOR_ATTACHMENT_RE.search(text)
+    if attachment_match:
+        return attachment_match.group("body").strip() + "\n", "report_present", None
+
+    if INCUBATOR_NO_REPORT_RE.search(text):
+        report_period = report_period_from_text(source_url) or "unknown"
+        return (
+            f"# Incubator PMC report {report_period}\n\nNo report was submitted.\n",
+            "no_report_submitted",
+            "No report was submitted.",
+        )
+
+    raise ValueError(f"No Incubator report found in board minutes: {source_url}")
+
+
 def parse_report_text(
     text: str,
     report_id: str,
@@ -350,14 +397,23 @@ def parse_report_text(
     source_url: str | None = None,
     cached_at: str | None = None,
     suffix: str = "",
+    source_status_override: str | None = None,
+    source_status_note_override: str | None = None,
 ) -> ParsedReport:
     normalized = normalize_text(text, suffix)
     title = _title_from_text(normalized, report_id)
     report_period = report_period_from_text(title, report_id, path)
+    if source_status_override is not None:
+        source_status = source_status_override
+        source_status_note = source_status_note_override
+    else:
+        source_status, source_status_note = _source_status_from_text(normalized)
+    sections = _sections(normalized)
+    toc_podlings = _table_of_contents_podlings(sections)
     podling_reports: list[PodlingReport] = []
 
-    for level, heading, body in _sections(normalized):
-        if level == 1 or level > 4 or not _looks_like_podling_section(heading, body):
+    for level, heading, body in sections:
+        if not _is_podling_section(level, heading, toc_podlings):
             continue
         podling_reports.append(
             PodlingReport(
@@ -379,6 +435,8 @@ def parse_report_text(
         generated_on=None,
         podling_reports=podling_reports,
         raw_text=normalized,
+        source_status=source_status,
+        source_status_note=source_status_note,
         source_url=source_url,
         cached_at=cached_at,
     )
@@ -451,6 +509,8 @@ def report_summary(report: ParsedReport) -> dict[str, Any]:
         "title": report.title,
         "path": report.path,
         "report_period": report.report_period,
+        "source_status": report.source_status,
+        "source_status_note": report.source_status_note,
         "source_url": report.source_url,
         "cached_at": report.cached_at,
         "visualization_hints": {
@@ -554,6 +614,13 @@ def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report
     filename = _filename_from_url(url, content_type)
     suffix = Path(filename).suffix or ".txt"
     resolved_id = report_id or _slug(Path(filename).stem)
+    text = payload.decode("utf-8", errors="replace")
+    source_status_override: str | None = None
+    source_status_note_override: str | None = None
+    if BOARD_MINUTES_URL_RE.search(urllib.parse.urlparse(url).path):
+        text, source_status_override, source_status_note_override = _extract_incubator_report_text(text, url)
+        payload = text.encode("utf-8")
+        suffix = ".txt"
     target = target_dir / f"{resolved_id}{suffix}"
     target.write_bytes(payload)
     metadata = {
@@ -565,12 +632,14 @@ def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report
     }
     _metadata_path(target).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     parsed = parse_report_text(
-        payload.decode("utf-8", errors="replace"),
+        text,
         report_id=resolved_id,
         path=str(target),
         source_url=url,
         cached_at=metadata["cached_at"],
         suffix=suffix,
+        source_status_override=source_status_override,
+        source_status_note_override=source_status_note_override,
     )
     return {
         "cached": True,
@@ -580,141 +649,30 @@ def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report
     }
 
 
-def _whimsy_report_blocks(html_text: str) -> list[tuple[str, str]]:
-    # Kept for tests and fallback parsing of the summary page. The summary page
-    # may omit detailed podling sections, so production caching follows minutes
-    # text links and extracts the full Incubator attachment.
-    blocks: list[tuple[str, str]] = []
-    pattern = re.compile(
-        r'<h2\s+id="(?P<date>\d{4}-\d{2}-\d{2})".*?</h2>\s*'
-        r'<pre\s+class="report">(?P<report>.*?)</pre>',
-        re.IGNORECASE | re.DOTALL,
-    )
-    for match in pattern.finditer(html_text):
-        period = match.group("date")[:7]
-        text = html.unescape(match.group("report")).strip() + "\n"
-        if "# Incubator PMC report" in text:
-            blocks.append((f"report{period.replace('-', '')}", text))
-    return blocks
-
-
-def _whimsy_minutes_urls(html_text: str, source_url: str) -> list[tuple[str, str]]:
-    matches = re.findall(
-        r'href=["\'](?P<url>[^"\']*board_minutes_(?P<year>\d{4})_(?P<month>\d{2})_\d{2}\.txt)["\']',
-        html_text,
-        flags=re.IGNORECASE,
-    )
-    seen: set[str] = set()
-    urls: list[tuple[str, str]] = []
-    for url, year, month in matches:
-        report_id = f"report{year}{month}"
-        if report_id in seen:
-            continue
-        seen.add(report_id)
-        urls.append((report_id, urllib.parse.urljoin(source_url, url)))
-    return urls
-
-
-def _extract_incubator_attachment(minutes_text: str) -> str | None:
-    start = minutes_text.find("# Incubator PMC report")
-    if start < 0:
-        return None
-    end = minutes_text.find("\n-----------------------------------------", start)
-    if end < 0:
-        end = len(minutes_text)
-    text = minutes_text[start:end].strip()
-    return html.unescape(_strip_tags(text)) + "\n"
-
-
-def cache_reports_from_whimsy(
-    source_url: str = ASF_REPORTS_REPO_URL,
-    cache_dir: str | Path = DEFAULT_CACHE_DIR,
-    years: int | None = 2,
-    limit: int | None = None,
-) -> dict[str, Any]:
-    payload, content_type = _download(source_url)
-    html_text = payload.decode("utf-8", errors="replace")
-    minutes_urls = _whimsy_minutes_urls(html_text, source_url)
-    target_dir = Path(cache_dir).expanduser().resolve()
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    cached: list[dict[str, Any]] = []
-    skipped: list[dict[str, str]] = []
-    errors: list[dict[str, str]] = []
-    for report_id, minutes_url in minutes_urls:
-        report_period = report_period_from_text(report_id, minutes_url)
-        if not _within_years_window(report_period, years):
-            continue
-        if limit is not None and len(cached) >= limit:
-            break
-        try:
-            minutes_payload, _minutes_content_type = _download(minutes_url)
-            minutes_text = minutes_payload.decode("utf-8", errors="replace")
-            text = _extract_incubator_attachment(minutes_text)
-            if text is None:
-                skipped.append({"report_id": report_id, "reason": "no_incubator_attachment"})
-                continue
-            parsed = parse_report_text(
-                text,
-                report_id=report_id,
-                path=minutes_url,
-                source_url=minutes_url,
-                suffix=".txt",
-            )
-            if not parsed.podling_reports:
-                skipped.append({"report_id": report_id, "reason": "no_podling_reports"})
-                continue
-            target = target_dir / f"{report_id}.txt"
-            target.write_text(text, encoding="utf-8")
-            metadata = {
-                "report_id": report_id,
-                "source_url": minutes_url,
-                "cached_at": _now_iso(),
-                "content_type": content_type,
-                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            }
-            _metadata_path(target).write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            parsed.path = str(target)
-            parsed.cached_at = metadata["cached_at"]
-            cached.append(
-                {
-                    "cached": True,
-                    "path": str(target),
-                    "metadata_path": str(_metadata_path(target)),
-                    "report": report_summary(parsed),
-                }
-            )
-        except Exception as exc:
-            errors.append({"report_id": report_id, "error": str(exc)})
-
-    return {
-        "source_url": source_url,
-        "cache_dir": str(target_dir),
-        "discovered_count": len(minutes_urls),
-        "cached_count": len(cached),
-        "skipped_count": len(skipped),
-        "error_count": len(errors),
-        "cached_reports": cached,
-        "skipped": skipped,
-        "errors": errors,
-    }
-
-
 def discover_report_urls(repo_url: str = ASF_REPORTS_REPO_URL) -> list[str]:
-    payload, _content_type = _download(repo_url)
-    listing = payload.decode("utf-8", errors="replace")
-    urls: list[str] = []
-    for href in re.findall(r'href=["\']([^"\']+)["\']', listing, flags=re.IGNORECASE):
-        if href.startswith("?") or href.startswith("#") or href in {"../", "./"}:
-            continue
-        resolved = urllib.parse.urljoin(repo_url, href)
-        path = urllib.parse.urlparse(resolved).path
-        if Path(path).suffix.lower() in SUPPORTED_SUFFIXES:
-            urls.append(resolved)
-    return sorted(set(urls))
+    seen_pages: set[str] = set()
+    urls: set[str] = set()
+
+    def walk(url: str) -> None:
+        if url in seen_pages:
+            return
+        seen_pages.add(url)
+        payload, _content_type = _download(url)
+        listing = payload.decode("utf-8", errors="replace")
+        for href in re.findall(r'href=["\']([^"\']+)["\']', listing, flags=re.IGNORECASE):
+            if href.startswith("?") or href.startswith("#") or href in {"../", "./"}:
+                continue
+            resolved = urllib.parse.urljoin(url, href)
+            path = urllib.parse.urlparse(resolved).path
+            name = Path(path).name
+            if BOARD_MINUTES_URL_RE.fullmatch(name):
+                urls.add(resolved)
+                continue
+            if path.endswith("/") and re.fullmatch(r"/foundation/records/minutes/\d{4}/", path):
+                walk(resolved)
+
+    walk(repo_url)
+    return sorted(urls)
 
 
 def cache_reports_from_repo(
@@ -723,9 +681,6 @@ def cache_reports_from_repo(
     years: int | None = 2,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    if "whimsy.apache.org/board/minutes/Incubator.html" in repo_url:
-        return cache_reports_from_whimsy(repo_url, cache_dir=cache_dir, years=years, limit=limit)
-
     urls = discover_report_urls(repo_url)
     selected = [
         url

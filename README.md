@@ -2,10 +2,10 @@
 
 A small stdio MCP server for reading ASF Incubator reports.
 
-By default, it uses the public Whimsy page for approved ASF Board minutes extracts:
+By default, it uses the published ASF board records:
 
 ```text
-https://whimsy.apache.org/board/minutes/Incubator.html
+https://apache.org/foundation/records/minutes/
 ```
 
 Reports are cached locally before being parsed. The default cache is `.cache/incubator-reports`.
