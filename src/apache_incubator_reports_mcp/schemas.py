@@ -19,6 +19,10 @@ PODLING_PROPERTY = {"type": "string", "description": "Podling name"}
 QUERY_PROPERTY = {"type": "string", "description": "Case-insensitive report or podling search text"}
 URL_PROPERTY = {"type": "string", "description": "Incubator report URL to cache"}
 LIMIT_PROPERTY = {"type": "integer", "description": "Optional maximum number of results"}
+YEARS_PROPERTY = {
+    "type": ["integer", "null"],
+    "description": "Optional number of years of report history to cache; null means full history",
+}
 BOOLEAN_PROPERTY = {"type": "boolean", "description": "Optional boolean flag"}
 
 
@@ -59,6 +63,7 @@ def repo_cache_properties() -> dict[str, Any]:
     return {
         "repo_url": REPO_URL_PROPERTY,
         "cache_dir": CACHE_DIR_PROPERTY,
+        "years": YEARS_PROPERTY,
         "limit": LIMIT_PROPERTY,
     }
 

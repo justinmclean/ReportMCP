@@ -56,6 +56,16 @@ def require_limit(value: Any) -> int:
     return value
 
 
+def require_years(value: Any) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("'years' must be an integer or null")
+    if value <= 0:
+        raise ValueError("'years' must be greater than 0")
+    return value
+
+
 def resolve_cache_dir(value: str | None = None) -> str:
     return optional_string(value, "cache_dir") or _CONFIGURED_CACHE_DIR or DEFAULT_CACHE_DIR
 
@@ -89,13 +99,16 @@ def incubator_reports_overview(
 def cache_all_reports(
     repo_url: str | None = None,
     cache_dir: str | None = None,
+    years: int | None = 2,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Download approved ASF Incubator reports into the local cache."""
+    resolved_years = require_years(years)
     resolved_limit = require_limit(limit) if limit is not None else None
     return cache_reports_from_repo(
         repo_url=resolve_repo_url(repo_url),
         cache_dir=resolve_cache_dir(cache_dir),
+        years=resolved_years,
         limit=resolved_limit,
     )
 

@@ -45,6 +45,7 @@ GENERIC_HEADINGS = {
 }
 DATE_PATTERNS = [
     re.compile(r"\b(20\d{2})[-_/ ](0?[1-9]|1[0-2])\b"),
+    re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)"),
     re.compile(
         r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
         r"\s+(20\d{2})\b",
@@ -212,9 +213,37 @@ def report_period_from_text(*values: str) -> str | None:
         if pattern is DATE_PATTERNS[0]:
             return f"{int(match.group(1)):04d}-{int(match.group(2)):02d}"
         if pattern is DATE_PATTERNS[1]:
+            return f"{int(match.group(1)):04d}-{int(match.group(2)):02d}"
+        if pattern is DATE_PATTERNS[2]:
             return f"{int(match.group(2)):04d}-{MONTHS[match.group(1).casefold()]}"
         return f"{int(match.group(1)):04d}-{MONTHS[match.group(2).casefold()]}"
     return None
+
+
+def _report_period_key(period: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"(20\d{2})-(0[1-9]|1[0-2])", period)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _within_years_window(
+    report_period: str | None,
+    years: int | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    if years is None or report_period is None:
+        return True
+
+    period_key = _report_period_key(report_period)
+    if period_key is None:
+        return True
+
+    current = now or datetime.now(UTC)
+    current_index = current.year * 12 + current.month
+    report_index = period_key[0] * 12 + period_key[1]
+    return report_index >= current_index - (years * 12)
 
 
 def _title_from_text(text: str, fallback: str) -> str:
@@ -600,6 +629,7 @@ def _extract_incubator_attachment(minutes_text: str) -> str | None:
 def cache_reports_from_whimsy(
     source_url: str = ASF_REPORTS_REPO_URL,
     cache_dir: str | Path = DEFAULT_CACHE_DIR,
+    years: int | None = 2,
     limit: int | None = None,
 ) -> dict[str, Any]:
     payload, content_type = _download(source_url)
@@ -612,6 +642,9 @@ def cache_reports_from_whimsy(
     skipped: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
     for report_id, minutes_url in minutes_urls:
+        report_period = report_period_from_text(report_id, minutes_url)
+        if not _within_years_window(report_period, years):
+            continue
         if limit is not None and len(cached) >= limit:
             break
         try:
@@ -687,13 +720,20 @@ def discover_report_urls(repo_url: str = ASF_REPORTS_REPO_URL) -> list[str]:
 def cache_reports_from_repo(
     repo_url: str = ASF_REPORTS_REPO_URL,
     cache_dir: str | Path = DEFAULT_CACHE_DIR,
+    years: int | None = 2,
     limit: int | None = None,
 ) -> dict[str, Any]:
     if "whimsy.apache.org/board/minutes/Incubator.html" in repo_url:
-        return cache_reports_from_whimsy(repo_url, cache_dir=cache_dir, limit=limit)
+        return cache_reports_from_whimsy(repo_url, cache_dir=cache_dir, years=years, limit=limit)
 
     urls = discover_report_urls(repo_url)
-    selected = urls[:limit] if limit is not None else urls
+    selected = [
+        url
+        for url in urls
+        if _within_years_window(report_period_from_text(url), years)
+    ]
+    if limit is not None:
+        selected = selected[:limit]
     cached: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     for url in selected:

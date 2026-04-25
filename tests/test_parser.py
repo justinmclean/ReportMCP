@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +70,52 @@ class ParserTests(unittest.TestCase):
                     "is_completion_fraction"
                 ]
             )
+
+    def test_cache_reports_from_repo_filters_to_recent_years(self) -> None:
+        now = datetime.now(UTC)
+        recent_url = f"https://example.invalid/reports/report{now.year}{now.month:02d}.txt"
+        old_url = f"https://example.invalid/reports/report{now.year - 3}{now.month:02d}.txt"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(parser, "discover_report_urls", return_value=[recent_url, old_url]),
+                patch.object(
+                    parser,
+                    "cache_report_url",
+                    side_effect=lambda url, cache_dir: {"url": url, "cache_dir": cache_dir},
+                ),
+            ):
+                result = parser.cache_reports_from_repo(
+                    repo_url="https://example.invalid/reports/",
+                    cache_dir=temp_dir,
+                    years=2,
+                )
+
+        self.assertEqual(result["discovered_count"], 2)
+        self.assertEqual(result["cached_count"], 1)
+        self.assertEqual(result["cached_reports"][0]["url"], recent_url)
+
+    def test_cache_reports_from_repo_allows_full_history_when_years_is_none(self) -> None:
+        now = datetime.now(UTC)
+        recent_url = f"https://example.invalid/reports/report{now.year}{now.month:02d}.txt"
+        old_url = f"https://example.invalid/reports/report{now.year - 3}{now.month:02d}.txt"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(parser, "discover_report_urls", return_value=[recent_url, old_url]),
+                patch.object(
+                    parser,
+                    "cache_report_url",
+                    side_effect=lambda url, cache_dir: {"url": url, "cache_dir": cache_dir},
+                ),
+            ):
+                result = parser.cache_reports_from_repo(
+                    repo_url="https://example.invalid/reports/",
+                    cache_dir=temp_dir,
+                    years=None,
+                )
+
+        self.assertEqual(result["cached_count"], 2)
 
 
 if __name__ == "__main__":

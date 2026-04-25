@@ -54,7 +54,7 @@ The server uses `stdio`, so it is intended to be launched by an MCP client.
 
 ## Tools
 
-- `cache_all_reports`: downloads approved Incubator reports from the Whimsy board-minutes extract into the local cache
+- `cache_all_reports`: downloads approved Incubator reports into the local cache, defaulting to the last 2 years unless `years` is set to `null`
 - `cache_report`: downloads one report URL into the local cache
 - `incubator_reports_overview`: summarizes cached report documents
 - `list_reports`: lists cached report documents

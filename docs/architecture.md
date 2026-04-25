@@ -17,7 +17,7 @@ The default upstream source is the public Whimsy board-minutes extract for the I
 https://whimsy.apache.org/board/minutes/Incubator.html
 ```
 
-`cache_all_reports` reads the approved report blocks from that page and writes them into the configured cache directory. Each cached report has a sibling JSON metadata file with the source URL, cache time, content type, and SHA-256 digest.
+`cache_all_reports` reads the approved report blocks from that page and writes them into the configured cache directory. By default it caches the last 2 years of reports, with `years=null` enabling full history and `limit` acting as an additional hard cap. Each cached report has a sibling JSON metadata file with the source URL, cache time, content type, and SHA-256 digest.
 
 ## Parsing Model
 
