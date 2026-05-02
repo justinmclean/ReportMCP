@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,7 +276,10 @@ More project notes without the older stock prompts.
             reports = parser.load_reports(base)
 
         self.assertEqual(len(reports), 2)
-        self.assertEqual([report.report_id for report in reports], ["board-minutes-2025-06-18", "report202604"])
+        self.assertEqual(
+            [report.report_id for report in reports],
+            ["board-minutes-2025-06-18", "report202604"],
+        )
 
     def test_template_heading_is_not_treated_as_podling(self) -> None:
         report = parser.parse_report_text(

@@ -16,7 +16,10 @@ DEFAULT_CACHE_DIR = ".cache/incubator-reports"
 ASF_REPORTS_REPO_URL = "https://apache.org/foundation/records/minutes/"
 SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt", ".html", ".htm"}
 BOARD_MINUTES_URL_RE = re.compile(r"board_minutes_\d{4}_\d{2}_\d{2}\.txt$", re.IGNORECASE)
-BOARD_MINUTES_PERIOD_RE = re.compile(r"board_minutes_(20\d{2})_(0[1-9]|1[0-2])_\d{2}\.txt", re.IGNORECASE)
+BOARD_MINUTES_PERIOD_RE = re.compile(
+    r"board_minutes_(20\d{2})_(0[1-9]|1[0-2])_\d{2}\.txt",
+    re.IGNORECASE,
+)
 TOC_LINK_RE = re.compile(r"^\[(?P<label>[^\]]+)\]\(#(?P<anchor>[^)]+)\)$")
 INCUBATOR_ATTACHMENT_RE = re.compile(
     r"Attachment [A-Z]+: Report from the Apache Incubator Project.*?"
@@ -72,10 +75,13 @@ MENTOR_SIGNOFF_INTERPRETATION = {
     "is_missing_or_risk_metric": False,
     "color_treatment": "neutral",
     "client_guidance": (
-        "Do not divide observed_mentor_signoff_count by mentor count, do not render it as red/orange/green "
-        "completion, and do not treat partial sign-off as a problem."
+        "Do not divide observed_mentor_signoff_count by mentor count, do not render it as "
+        "red/orange/green completion, and do not treat partial sign-off as a problem."
     ),
 }
+MENTOR_SIGNOFF_NOTE = (
+    "Full mentor sign-off is not required; these are observed checked sign-offs only."
+)
 
 
 @dataclass
@@ -111,7 +117,7 @@ class PodlingReport:
             "podling": self.podling,
             "heading": self.heading,
             "issues": self.issues,
-            "mentor_signoff_note": "Full mentor sign-off is not required; these are observed checked sign-offs only.",
+            "mentor_signoff_note": MENTOR_SIGNOFF_NOTE,
             "full_mentor_signoff_required": False,
             "mentor_signoff_status": "informational",
             "mentor_signoff_color": "neutral",
@@ -153,7 +159,9 @@ class ParsedReport:
             "source_url": self.source_url,
             "cached_at": self.cached_at,
             "podling_count": len(self.podling_reports),
-            "podlings": [item.to_dict(include_body=include_bodies) for item in self.podling_reports],
+            "podlings": [
+                item.to_dict(include_body=include_bodies) for item in self.podling_reports
+            ],
         }
         if include_raw:
             data["raw_text"] = self.raw_text
@@ -176,7 +184,10 @@ def _strip_markdown(value: str) -> str:
 
 
 def _html_to_markdownish(text: str) -> str:
-    text = HTML_HEADING_RE.sub(lambda m: "\n" + "#" * int(m.group(1)) + " " + _strip_tags(m.group(2)) + "\n", text)
+    text = HTML_HEADING_RE.sub(
+        lambda m: "\n" + "#" * int(m.group(1)) + " " + _strip_tags(m.group(2)) + "\n",
+        text,
+    )
     text = HTML_BLOCK_RE.sub("\n", text)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     return html.unescape(_strip_tags(text))
@@ -187,7 +198,9 @@ def _strip_tags(value: str) -> str:
 
 
 def normalize_text(text: str, suffix: str = "") -> str:
-    if suffix.lower() in {".html", ".htm"} or re.search(r"<html|<h[1-6]|<body", text, re.IGNORECASE):
+    if suffix.lower() in {".html", ".htm"} or re.search(
+        r"<html|<h[1-6]|<body", text, re.IGNORECASE
+    ):
         return _html_to_markdownish(text)
     return text
 
@@ -369,7 +382,10 @@ def _source_status_from_text(text: str) -> tuple[str, str | None]:
     if "no report was submitted" in normalized:
         return "no_report_submitted", "No report was submitted."
     if "awaiting the approval of the board minutes" in normalized:
-        return "awaiting_board_approval", "Report was filed, but display is awaiting the approval of the Board minutes."
+        return (
+            "awaiting_board_approval",
+            "Report was filed, but display is awaiting the approval of the Board minutes.",
+        )
     return "report_present", None
 
 
@@ -489,7 +505,10 @@ def load_reports(reports_dir: str | Path = DEFAULT_REPORTS_DIR) -> list[ParsedRe
 def find_report(reports_dir: str | Path, report_id: str) -> ParsedReport:
     normalized = report_id.casefold()
     for report in load_reports(reports_dir):
-        if report.report_id.casefold() == normalized or Path(report.path).stem.casefold() == normalized:
+        if (
+            report.report_id.casefold() == normalized
+            or Path(report.path).stem.casefold() == normalized
+        ):
             return report
     raise KeyError(f"No Incubator report found for report_id: {report_id}")
 
@@ -520,9 +539,7 @@ def report_summary(report: ParsedReport) -> dict[str, Any]:
         "podlings": [
             {
                 "podling": item.podling,
-                "mentor_signoff_note": (
-                    "Full mentor sign-off is not required; these are observed checked sign-offs only."
-                ),
+                "mentor_signoff_note": MENTOR_SIGNOFF_NOTE,
                 "full_mentor_signoff_required": False,
                 "mentor_signoff_status": "informational",
                 "mentor_signoff_color": "neutral",
@@ -543,9 +560,13 @@ def reports_overview(reports_dir: str | Path) -> dict[str, Any]:
     return {
         "reports_dir": str(Path(reports_dir).expanduser().resolve()),
         "report_count": len(reports),
-        "podling_count": len({item.podling for report in reports for item in report.podling_reports}),
+        "podling_count": len(
+            {item.podling for report in reports for item in report.podling_reports}
+        ),
         "report_ids": [report.report_id for report in reports],
-        "report_periods": sorted({report.report_period for report in reports if report.report_period}),
+        "report_periods": sorted(
+            {report.report_period for report in reports if report.report_period}
+        ),
         "podlings": list_podlings(reports_dir),
     }
 
@@ -573,7 +594,9 @@ def search_reports(reports_dir: str | Path, query: str) -> list[dict[str, Any]]:
     normalized = query.casefold()
     rows: list[dict[str, Any]] = []
     for report in load_reports(reports_dir):
-        report_match = normalized in report.title.casefold() or normalized in report.raw_text.casefold()
+        report_match = (
+            normalized in report.title.casefold() or normalized in report.raw_text.casefold()
+        )
         podling_matches = [
             item.podling
             for item in report.podling_reports
@@ -593,7 +616,10 @@ def search_reports(reports_dir: str | Path, query: str) -> list[dict[str, Any]]:
 
 
 def _download(url: str) -> tuple[bytes, str]:
-    request = urllib.request.Request(url, headers={"User-Agent": "apache-incubator-reports-mcp/0.1.0"})
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "apache-incubator-reports-mcp/0.1.0"},
+    )
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.read(), response.headers.get("content-type", "")
 
@@ -604,10 +630,15 @@ def _filename_from_url(url: str, content_type: str) -> str:
     if name and Path(name).suffix.lower() in SUPPORTED_SUFFIXES:
         return name
     suffix = ".html" if "html" in content_type.casefold() else ".txt"
-    return f"{_slug(Path(parsed.path).stem or hashlib.sha256(url.encode('utf-8')).hexdigest()[:12])}{suffix}"
+    fallback = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+    return f"{_slug(Path(parsed.path).stem or fallback)}{suffix}"
 
 
-def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report_id: str | None = None) -> dict[str, Any]:
+def cache_report_url(
+    url: str,
+    cache_dir: str | Path = DEFAULT_CACHE_DIR,
+    report_id: str | None = None,
+) -> dict[str, Any]:
     target_dir = Path(cache_dir).expanduser().resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     payload, content_type = _download(url)
@@ -618,7 +649,10 @@ def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report
     source_status_override: str | None = None
     source_status_note_override: str | None = None
     if BOARD_MINUTES_URL_RE.search(urllib.parse.urlparse(url).path):
-        text, source_status_override, source_status_note_override = _extract_incubator_report_text(text, url)
+        text, source_status_override, source_status_note_override = _extract_incubator_report_text(
+            text,
+            url,
+        )
         payload = text.encode("utf-8")
         suffix = ".txt"
     target = target_dir / f"{resolved_id}{suffix}"
@@ -630,7 +664,10 @@ def cache_report_url(url: str, cache_dir: str | Path = DEFAULT_CACHE_DIR, report
         "content_type": content_type,
         "sha256": hashlib.sha256(payload).hexdigest(),
     }
-    _metadata_path(target).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _metadata_path(target).write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     parsed = parse_report_text(
         text,
         report_id=resolved_id,

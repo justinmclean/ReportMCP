@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +43,11 @@ class ToolsTests(unittest.TestCase):
         )
 
     def test_cache_all_reports_passes_years_and_limit(self) -> None:
-        with patch.object(tools, "cache_reports_from_repo", return_value={"cached_count": 0}) as mocked:
+        with patch.object(
+            tools,
+            "cache_reports_from_repo",
+            return_value={"cached_count": 0},
+        ) as mocked:
             tools.cache_all_reports(years=3, limit=5)
 
         mocked.assert_called_once()

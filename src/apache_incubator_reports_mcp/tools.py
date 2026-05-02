@@ -10,11 +10,15 @@ from apache_incubator_reports_mcp.parser import (
     cache_report_url,
     cache_reports_from_repo,
     find_report,
-    list_podlings as parser_list_podlings,
     load_reports,
     podling_reports,
     report_summary,
     reports_overview,
+)
+from apache_incubator_reports_mcp.parser import (
+    list_podlings as parser_list_podlings,
+)
+from apache_incubator_reports_mcp.parser import (
     search_reports as parser_search_reports,
 )
 
@@ -113,7 +117,11 @@ def cache_all_reports(
     )
 
 
-def cache_report(url: str, cache_dir: str | None = None, report_id: str | None = None) -> dict[str, Any]:
+def cache_report(
+    url: str,
+    cache_dir: str | None = None,
+    report_id: str | None = None,
+) -> dict[str, Any]:
     """Download one Incubator report URL into the local cache."""
     return cache_report_url(
         require_non_empty_string(url, "url"),

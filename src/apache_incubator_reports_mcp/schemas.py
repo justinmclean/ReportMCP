@@ -14,7 +14,10 @@ REPO_URL_PROPERTY = {
     "type": "string",
     "description": "Optional ASF Incubator reports source URL",
 }
-REPORT_ID_PROPERTY = {"type": "string", "description": "Incubator report id, usually the cached file stem"}
+REPORT_ID_PROPERTY = {
+    "type": "string",
+    "description": "Incubator report id, usually the cached file stem",
+}
 PODLING_PROPERTY = {"type": "string", "description": "Podling name"}
 QUERY_PROPERTY = {"type": "string", "description": "Case-insensitive report or podling search text"}
 URL_PROPERTY = {"type": "string", "description": "Incubator report URL to cache"}
