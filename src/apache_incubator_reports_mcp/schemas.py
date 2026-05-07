@@ -27,6 +27,18 @@ YEARS_PROPERTY = {
     "description": "Optional number of years of report history to cache; null means full history",
 }
 BOOLEAN_PROPERTY = {"type": "boolean", "description": "Optional boolean flag"}
+YEAR_PROPERTY = {
+    "type": ["integer", "null"],
+    "description": "Optional four-digit year for the first schedule month",
+}
+MONTH_PROPERTY = {
+    "type": ["integer", "null"],
+    "description": "Optional month number, 1 through 12, for the first schedule month",
+}
+COUNT_PROPERTY = {
+    "type": "integer",
+    "description": "Optional number of monthly due-date entries to return",
+}
 
 
 def input_schema(
@@ -98,4 +110,12 @@ def search_properties() -> dict[str, Any]:
         **base_properties(),
         "query": QUERY_PROPERTY,
         "limit": LIMIT_PROPERTY,
+    }
+
+
+def report_due_date_properties() -> dict[str, Any]:
+    return {
+        "year": YEAR_PROPERTY,
+        "month": MONTH_PROPERTY,
+        "count": COUNT_PROPERTY,
     }

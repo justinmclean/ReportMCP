@@ -21,6 +21,11 @@ from apache_incubator_reports_mcp.parser import (
 from apache_incubator_reports_mcp.parser import (
     search_reports as parser_search_reports,
 )
+from apache_incubator_reports_mcp.schedule import (
+    current_year_month,
+    report_due_date_schedule,
+    report_due_dates_ical,
+)
 
 _CONFIGURED_CACHE_DIR: str | None = None
 _CONFIGURED_REPO_URL: str | None = None
@@ -67,6 +72,26 @@ def require_years(value: Any) -> int | None:
         raise ValueError("'years' must be an integer or null")
     if value <= 0:
         raise ValueError("'years' must be greater than 0")
+    return value
+
+
+def require_year(value: Any) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("'year' must be an integer or null")
+    if value < 2000 or value > 2099:
+        raise ValueError("'year' must be between 2000 and 2099")
+    return value
+
+
+def require_month(value: Any) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("'month' must be an integer or null")
+    if value < 1 or value > 12:
+        raise ValueError("'month' must be between 1 and 12")
     return value
 
 
@@ -228,6 +253,63 @@ def get_podling_reports(
     return {"podling": resolved_podling, "count": len(rows), "reports": rows}
 
 
+def get_report_due_dates(
+    year: int | None = None,
+    month: int | None = None,
+    count: int = 12,
+) -> dict[str, Any]:
+    """Return Incubator report due dates based on ASF Board meeting dates."""
+    schedule = _report_due_date_schedule_from_args(year, month, count)
+    return {
+        "schedule_basis": {
+            "board_meeting": "Typically the third Wednesday of each month",
+            "podling_reports_due": "Two weeks before the ASF Board meeting",
+            "mentor_signoff_due": "One week before the ASF Board meeting",
+        },
+        "count": len(schedule),
+        "due_dates": schedule,
+    }
+
+
+def _report_due_date_schedule_from_args(
+    year: int | None,
+    month: int | None,
+    count: int,
+) -> list[dict[str, Any]]:
+    resolved_year = require_year(year)
+    resolved_month = require_month(month)
+    resolved_count = require_limit(count)
+    if resolved_year is None and resolved_month is None:
+        current_year, current_month = current_year_month()
+        resolved_year = current_year
+        resolved_month = current_month
+    elif resolved_year is None:
+        resolved_year = current_year_month()[0]
+    elif resolved_month is None:
+        resolved_month = 1
+    assert resolved_year is not None
+    assert resolved_month is not None
+    return report_due_date_schedule(resolved_year, resolved_month, resolved_count)
+
+
+def get_report_due_dates_ical(
+    year: int | None = None,
+    month: int | None = None,
+    count: int = 12,
+) -> dict[str, Any]:
+    """Return an importable iCalendar file for Incubator report due dates."""
+    schedule = _report_due_date_schedule_from_args(year, month, count)
+    first_period = schedule[0]["report_period"]
+    filename = f"apache-incubator-report-due-dates-{first_period}.ics"
+    return {
+        "filename": filename,
+        "content_type": "text/calendar",
+        "count": len(schedule),
+        "event_count": len(schedule) * 3,
+        "calendar": report_due_dates_ical(schedule),
+    }
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "incubator_reports_overview": schemas.tool_definition(
         description="Return a high-level summary of cached ASF Incubator reports.",
@@ -278,5 +360,15 @@ TOOLS: dict[str, dict[str, Any]] = {
         handler=get_podling_reports,
         properties=schemas.podling_properties(),
         required=["podling"],
+    ),
+    "get_report_due_dates": schemas.tool_definition(
+        description="Return Incubator report due dates based on ASF Board meeting dates.",
+        handler=get_report_due_dates,
+        properties=schemas.report_due_date_properties(),
+    ),
+    "get_report_due_dates_ical": schemas.tool_definition(
+        description="Return an importable iCalendar file for Incubator report due dates.",
+        handler=get_report_due_dates_ical,
+        properties=schemas.report_due_date_properties(),
     ),
 }

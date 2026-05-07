@@ -27,6 +27,8 @@ class ProtocolTests(unittest.TestCase):
         names = {tool["name"] for tool in response["result"]["tools"]}
 
         self.assertIn("cache_all_reports", names)
+        self.assertIn("get_report_due_dates", names)
+        self.assertIn("get_report_due_dates_ical", names)
 
 
 if __name__ == "__main__":

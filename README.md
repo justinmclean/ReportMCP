@@ -63,6 +63,8 @@ The server uses `stdio`, so it is intended to be launched by an MCP client.
 - `get_report_summary`: returns parsed summary details for a report
 - `get_report_markdown`: returns raw report text
 - `get_podling_reports`: returns all cached entries for one podling
+- `get_report_due_dates`: returns report, mentor sign-off, and Board meeting due dates
+- `get_report_due_dates_ical`: returns an importable `.ics` calendar for report due dates
 
 ## Test
 
