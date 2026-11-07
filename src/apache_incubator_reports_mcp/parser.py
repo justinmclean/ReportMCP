@@ -13,11 +13,13 @@ from typing import Any
 
 DEFAULT_REPORTS_DIR = "reports"
 DEFAULT_CACHE_DIR = ".cache/incubator-reports"
+NO_INCUBATOR_REPORT_ERROR = "No Incubator report found in board minutes"
+MINUTES_WITHOUT_REPORT_FILE = "minutes-without-incubator-report.json"
 ASF_REPORTS_REPO_URL = "https://apache.org/foundation/records/minutes/"
 SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt", ".html", ".htm"}
 BOARD_MINUTES_URL_RE = re.compile(r"board_minutes_\d{4}_\d{2}_\d{2}\.txt$", re.IGNORECASE)
 BOARD_MINUTES_PERIOD_RE = re.compile(
-    r"board_minutes_(20\d{2})_(0[1-9]|1[0-2])_\d{2}\.txt",
+    r"board_minutes_(\d{4})_(0[1-9]|1[0-2])_\d{2}\.txt",
     re.IGNORECASE,
 )
 TOC_LINK_RE = re.compile(r"^\[(?P<label>[^\]]+)\]\(#(?P<anchor>[^)]+)\)$")
@@ -225,7 +227,7 @@ def report_period_from_text(*values: str) -> str | None:
 
 
 def _report_period_key(period: str) -> tuple[int, int] | None:
-    match = re.fullmatch(r"(20\d{2})-(0[1-9]|1[0-2])", period)
+    match = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", period)
     if not match:
         return None
     return int(match.group(1)), int(match.group(2))
@@ -310,50 +312,78 @@ def _clean_podling_name(heading: str) -> str:
     return name.strip()
 
 
+ISSUE_MARKER_RE = re.compile(r"^(?P<indent>\s*)(?:[-*\u2022]\s+|\d+[.)](?!\d)\s*)(?P<text>.*)$")
+ISSUE_SECTION_END_RE = re.compile(
+    r"^(#|(how|date of|when were|signed[- ]off|shepherd|are there any"
+    r"|have your mentors|is the ppmc)\b)",
+    re.IGNORECASE,
+)
+ISSUE_PLACEHOLDER_RE = re.compile(r"^(n/?a|none|tbd|-+|\.+)\.?$", re.IGNORECASE)
+
+
 def _extract_issues(body: str) -> list[str]:
+    """Read the "three most important unfinished issues" list.
+
+    Podlings write it many ways: "1. Foo", "1.Foo", "- Foo", plain paragraphs,
+    sub-bullets under an item, and empty "3." placeholders. Items are kept in
+    order, wrapped lines are joined, and empty, "N/A" and repeated items are
+    dropped.
+    """
     lower = body.casefold()
-    marker = "three most important"
-    start = lower.find(marker)
+    start = lower.find("three most important")
     if start < 0:
         return []
-    block = body[start : start + 1200]
-    lines: list[str] = []
-    current_item: str | None = None
-    for raw_line in block.splitlines()[1:]:
+    items: list[str] = []
+    current: list[str] = []
+    item_indent: int | None = None
+    saw_marker = False
+    after_blank = False
+
+    def close() -> None:
+        if current:
+            items.append(_strip_markdown(" ".join(current)))
+            current.clear()
+
+    for raw_line in body[start:].splitlines()[1:]:
         stripped = raw_line.strip()
         if not stripped:
-            if current_item:
-                lines.append(_strip_markdown(current_item))
-                current_item = None
-            if lines:
-                break
+            close()
+            after_blank = True
             continue
-        if re.match(r"^(how|date of|when were|signed[- ]off|shepherd)", stripped, re.IGNORECASE):
-            if current_item:
-                lines.append(_strip_markdown(current_item))
+        if ISSUE_SECTION_END_RE.match(stripped):
             break
-
-        bullet_item = re.sub(r"^[-*]\s+", "", stripped)
-        bullet_item = re.sub(r"^\d+[.)]\s+", "", bullet_item)
-        is_new_item = bullet_item != stripped
-
-        if is_new_item:
-            if current_item:
-                lines.append(_strip_markdown(current_item))
-            if bullet_item and not bullet_item.endswith(":"):
-                current_item = bullet_item
+        match = ISSUE_MARKER_RE.match(raw_line)
+        if match:
+            indent = len(match.group("indent"))
+            if item_indent is not None and indent > item_indent and current:
+                # A sub-bullet such as "- ONGOING." under a numbered item.
+                current.append(match.group("text").strip())
             else:
-                current_item = None
+                close()
+                item_indent = indent if item_indent is None else item_indent
+                saw_marker = True
+                text = match.group("text").strip()
+                if text:
+                    current.append(text)
+        elif after_blank and saw_marker and not current:
+            # Prose after a marked list is the next part of the report.
+            break
+        else:
+            current.append(stripped)
+        after_blank = False
+    close()
+
+    seen: set[str] = set()
+    issues: list[str] = []
+    for item in items:
+        if not item or ISSUE_PLACEHOLDER_RE.match(item) or item.endswith(":"):
             continue
-
-        if current_item:
-            current_item = f"{current_item} {stripped}"
-        elif stripped and not stripped.endswith(":"):
-            current_item = stripped
-
-    if current_item:
-        lines.append(_strip_markdown(current_item))
-    return lines[:5]
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append(item)
+    return issues[:5]
 
 
 def _extract_signoffs(body: str) -> list[MentorSignoff]:
@@ -402,7 +432,7 @@ def _extract_incubator_report_text(text: str, source_url: str) -> tuple[str, str
             "No report was submitted.",
         )
 
-    raise ValueError(f"No Incubator report found in board minutes: {source_url}")
+    raise ValueError(f"{NO_INCUBATOR_REPORT_ERROR}: {source_url}")
 
 
 def parse_report_text(
@@ -686,7 +716,11 @@ def cache_report_url(
     }
 
 
-def discover_report_urls(repo_url: str = ASF_REPORTS_REPO_URL) -> list[str]:
+def discover_report_urls(
+    repo_url: str = ASF_REPORTS_REPO_URL,
+    years: int | None = None,
+) -> list[str]:
+    """Find board minutes URLs, walking only year folders inside ``years``."""
     seen_pages: set[str] = set()
     urls: set[str] = set()
 
@@ -705,11 +739,33 @@ def discover_report_urls(repo_url: str = ASF_REPORTS_REPO_URL) -> list[str]:
             if BOARD_MINUTES_URL_RE.fullmatch(name):
                 urls.add(resolved)
                 continue
-            if path.endswith("/") and re.fullmatch(r"/foundation/records/minutes/\d{4}/", path):
+            year_match = re.fullmatch(r"/foundation/records/minutes/(\d{4})/", path)
+            if year_match and _within_years_window(f"{year_match.group(1)}-12", years):
                 walk(resolved)
 
     walk(repo_url)
     return sorted(urls)
+
+
+def _read_minutes_without_report(target_dir: Path) -> set[str]:
+    try:
+        data = json.loads((target_dir / MINUTES_WITHOUT_REPORT_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {url for url in data if isinstance(url, str)} if isinstance(data, list) else set()
+
+
+def _write_minutes_without_report(target_dir: Path, urls: set[str]) -> None:
+    if not urls:
+        return
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / MINUTES_WITHOUT_REPORT_FILE).write_text(
+        json.dumps(sorted(urls), indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _cached_minutes_name(url: str) -> str:
+    return f"{_slug(Path(urllib.parse.urlparse(url).path).stem)}.txt"
 
 
 def cache_reports_from_repo(
@@ -717,13 +773,30 @@ def cache_reports_from_repo(
     cache_dir: str | Path = DEFAULT_CACHE_DIR,
     years: int | None = 2,
     limit: int | None = None,
+    skip_cached: bool = False,
 ) -> dict[str, Any]:
-    urls = discover_report_urls(repo_url)
+    """Download board minutes into the cache.
+
+    Approved minutes do not change, so ``skip_cached`` only fetches reports
+    that are not cached yet. That keeps a refresh to a few requests.
+    """
+    urls = discover_report_urls(repo_url, years)
     selected = [
         url
         for url in urls
         if _within_years_window(report_period_from_text(url), years)
     ]
+    skipped = 0
+    target_dir = Path(cache_dir).expanduser().resolve()
+    without_report = _read_minutes_without_report(target_dir)
+    if skip_cached:
+        uncached = [
+            url
+            for url in selected
+            if url not in without_report and not (target_dir / _cached_minutes_name(url)).exists()
+        ]
+        skipped = len(selected) - len(uncached)
+        selected = uncached
     if limit is not None:
         selected = selected[:limit]
     cached: list[dict[str, Any]] = []
@@ -732,12 +805,18 @@ def cache_reports_from_repo(
         try:
             cached.append(cache_report_url(url, cache_dir=cache_dir))
         except Exception as exc:
+            if isinstance(exc, ValueError) and str(exc).startswith(NO_INCUBATOR_REPORT_ERROR):
+                # Special meetings have no Incubator report; remember them so a
+                # refresh does not fetch them again.
+                without_report.add(url)
             errors.append({"url": url, "error": str(exc)})
+    _write_minutes_without_report(target_dir, without_report)
     return {
         "repo_url": repo_url,
         "cache_dir": str(Path(cache_dir).expanduser().resolve()),
         "discovered_count": len(urls),
         "cached_count": len(cached),
+        "skipped_cached_count": skipped,
         "error_count": len(errors),
         "cached_reports": cached,
         "errors": errors,

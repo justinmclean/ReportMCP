@@ -111,8 +111,10 @@ def resolve_reports_dir(
     if reports_dir is not None:
         return require_non_empty_string(reports_dir, "reports_dir")
     resolved_cache_dir = resolve_cache_dir(cache_dir)
-    if refresh or not Path(resolved_cache_dir).expanduser().exists():
+    if not Path(resolved_cache_dir).expanduser().exists():
         cache_all_reports(cache_dir=resolved_cache_dir)
+    elif refresh:
+        cache_all_reports(cache_dir=resolved_cache_dir, skip_cached=True)
     return resolved_cache_dir
 
 
@@ -130,6 +132,7 @@ def cache_all_reports(
     cache_dir: str | None = None,
     years: int | None = 2,
     limit: int | None = None,
+    skip_cached: bool = False,
 ) -> dict[str, Any]:
     """Download approved ASF Incubator reports into the local cache."""
     resolved_years = require_years(years)
@@ -139,6 +142,7 @@ def cache_all_reports(
         cache_dir=resolve_cache_dir(cache_dir),
         years=resolved_years,
         limit=resolved_limit,
+        skip_cached=skip_cached,
     )
 
 
