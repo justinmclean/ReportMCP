@@ -108,12 +108,39 @@ def resolve_reports_dir(
     cache_dir: str | None = None,
     refresh: bool = False,
 ) -> str:
+    return _resolve_reports_dir(reports_dir, cache_dir, refresh)[0]
+
+
+def _resolve_reports_dir(
+    reports_dir: str | None,
+    cache_dir: str | None,
+    refresh: bool,
+) -> tuple[str, str | None]:
+    """Return the reports directory and a warning if a refresh failed.
+
+    A refresh that fails part way, for example when apache.org is slow or
+    returns an error, falls back to the existing cache rather than failing
+    the read.
+    """
     if reports_dir is not None:
-        return require_non_empty_string(reports_dir, "reports_dir")
+        return require_non_empty_string(reports_dir, "reports_dir"), None
     resolved_cache_dir = resolve_cache_dir(cache_dir)
-    if refresh or not Path(resolved_cache_dir).expanduser().exists():
+    if not Path(resolved_cache_dir).expanduser().exists():
         cache_all_reports(cache_dir=resolved_cache_dir)
-    return resolved_cache_dir
+    elif refresh:
+        try:
+            cache_all_reports(cache_dir=resolved_cache_dir, skip_cached=True)
+        except (OSError, ValueError) as error:
+            return resolved_cache_dir, (
+                f"Refresh failed ({error or type(error).__name__}), so cached reports were used."
+            )
+    return resolved_cache_dir, None
+
+
+def _with_warning(payload: dict[str, Any], warning: str | None) -> dict[str, Any]:
+    if warning:
+        payload["refresh_warning"] = warning
+    return payload
 
 
 def incubator_reports_overview(
@@ -122,7 +149,8 @@ def incubator_reports_overview(
     refresh: bool = False,
 ) -> dict[str, Any]:
     """Return a high-level summary of cached ASF Incubator reports."""
-    return reports_overview(resolve_reports_dir(reports_dir, cache_dir, refresh))
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    return _with_warning(reports_overview(resolved), warning)
 
 
 def cache_all_reports(
@@ -130,6 +158,7 @@ def cache_all_reports(
     cache_dir: str | None = None,
     years: int | None = 2,
     limit: int | None = None,
+    skip_cached: bool = False,
 ) -> dict[str, Any]:
     """Download approved ASF Incubator reports into the local cache."""
     resolved_years = require_years(years)
@@ -139,6 +168,7 @@ def cache_all_reports(
         cache_dir=resolve_cache_dir(cache_dir),
         years=resolved_years,
         limit=resolved_limit,
+        skip_cached=skip_cached,
     )
 
 
@@ -161,8 +191,9 @@ def list_reports(
     refresh: bool = False,
 ) -> dict[str, Any]:
     """List cached Incubator report documents."""
-    reports = load_reports(resolve_reports_dir(reports_dir, cache_dir, refresh))
-    return {
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    reports = load_reports(resolved)
+    payload = {
         "count": len(reports),
         "reports": [
             {
@@ -179,6 +210,7 @@ def list_reports(
             for report in reports
         ],
     }
+    return _with_warning(payload, warning)
 
 
 def list_podlings(
@@ -187,11 +219,10 @@ def list_podlings(
     refresh: bool = False,
 ) -> dict[str, Any]:
     """List podlings that appear in cached Incubator reports."""
-    resolved = resolve_reports_dir(reports_dir, cache_dir, refresh)
-    return {
-        "reports_dir": resolved,
-        "podlings": parser_list_podlings(resolved),
-    }
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    return _with_warning(
+        {"reports_dir": resolved, "podlings": parser_list_podlings(resolved)}, warning
+    )
 
 
 def search_reports(
@@ -203,11 +234,11 @@ def search_reports(
 ) -> dict[str, Any]:
     """Search cached Incubator reports by text or podling name."""
     resolved_limit = require_limit(limit)
-    rows = parser_search_reports(
-        resolve_reports_dir(reports_dir, cache_dir, refresh),
-        require_non_empty_string(query, "query"),
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    rows = parser_search_reports(resolved, require_non_empty_string(query, "query"))
+    return _with_warning(
+        {"query": query, "count": len(rows), "results": rows[:resolved_limit]}, warning
     )
-    return {"query": query, "count": len(rows), "results": rows[:resolved_limit]}
 
 
 def get_report_summary(
@@ -217,11 +248,9 @@ def get_report_summary(
     refresh: bool = False,
 ) -> dict[str, Any]:
     """Return parsed summary details for one cached Incubator report."""
-    report = find_report(
-        resolve_reports_dir(reports_dir, cache_dir, refresh),
-        require_non_empty_string(report_id, "report_id"),
-    )
-    return report_summary(report)
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    report = find_report(resolved, require_non_empty_string(report_id, "report_id"))
+    return _with_warning(report_summary(report), warning)
 
 
 def get_report_markdown(
@@ -246,11 +275,11 @@ def get_podling_reports(
 ) -> dict[str, Any]:
     """Return all cached report entries for one podling."""
     resolved_podling = require_non_empty_string(podling, "podling")
-    rows = podling_reports(
-        resolve_reports_dir(reports_dir, cache_dir, refresh),
-        resolved_podling,
+    resolved, warning = _resolve_reports_dir(reports_dir, cache_dir, refresh)
+    rows = podling_reports(resolved, resolved_podling)
+    return _with_warning(
+        {"podling": resolved_podling, "count": len(rows), "reports": rows}, warning
     )
-    return {"podling": resolved_podling, "count": len(rows), "reports": rows}
 
 
 def get_report_due_dates(

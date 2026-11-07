@@ -139,6 +139,38 @@ Signed-off-by:
 
         self.assertEqual(result["cached_count"], 2)
 
+    def test_cache_reports_from_repo_skip_cached_fetches_only_new_minutes(self) -> None:
+        year = datetime.now(UTC).year
+        base = "https://example.invalid/foundation/records/minutes"
+        cached_url = f"{base}/{year}/board_minutes_{year}_01_21.txt"
+        new_url = f"{base}/{year}/board_minutes_{year}_02_18.txt"
+        special_url = f"{base}/{year}/board_minutes_{year}_02_25.txt"
+        old_url = f"{base}/board_minutes_1999_04_13.txt"
+        fetched: list[str] = []
+
+        def fake_cache(url: str, cache_dir: str) -> dict[str, str]:
+            fetched.append(url)
+            if url == special_url:
+                raise ValueError(f"{parser.NO_INCUBATOR_REPORT_ERROR}: {url}")
+            return {"url": url}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, f"board-minutes-{year}-01-21.txt").write_text("cached", encoding="utf-8")
+            urls = [cached_url, new_url, special_url, old_url]
+            with (
+                patch.object(parser, "discover_report_urls", return_value=urls),
+                patch.object(parser, "cache_report_url", side_effect=fake_cache),
+            ):
+                first = parser.cache_reports_from_repo(cache_dir=temp_dir, skip_cached=True)
+                fetched.clear()
+                parser.cache_reports_from_repo(cache_dir=temp_dir, skip_cached=True)
+
+        self.assertEqual(first["skipped_cached_count"], 1)
+        self.assertEqual(first["cached_count"], 1)
+        # The 1999 minutes are outside the window, and the special meeting is
+        # remembered, so a second refresh only retries the new report.
+        self.assertEqual(fetched, [new_url])
+
     def test_within_years_window_uses_calendar_years(self) -> None:
         now = datetime(2026, 4, 25, tzinfo=UTC)
 
@@ -171,6 +203,72 @@ Date of last release: 2025-01-01
                 "Improve docs.",
             ],
         )
+
+    def test_extract_issues_drops_empty_numbered_placeholders(self) -> None:
+        body = """Three most important unfinished issues to address before graduating:
+
+  1. Grow the community (committers, contributors, users)
+  2. Create releases
+  3.
+
+### Are there any issues that the IPMC or ASF Board need to be aware of?
+
+  None
+"""
+
+        self.assertEqual(
+            parser._extract_issues(body),
+            ["Grow the community (committers, contributors, users)", "Create releases"],
+        )
+
+    def test_extract_issues_splits_numbers_without_a_space(self) -> None:
+        body = """Three most important unfinished issues to address before graduating:
+
+  1.Keep growing the community, attract more contributors and committers
+  2.Release Apache standard releases regularly
+  3.Continuously improve system performance
+
+### Are there any issues that the IPMC or ASF Board need to be aware of?
+"""
+
+        self.assertEqual(
+            parser._extract_issues(body),
+            [
+                "Keep growing the community, attract more contributors and committers",
+                "Release Apache standard releases regularly",
+                "Continuously improve system performance",
+            ],
+        )
+
+    def test_extract_issues_drops_na_and_keeps_sub_bullets_with_their_item(self) -> None:
+        body = """Three most important unfinished issues to address before graduating:
+
+  1. Successfully make releases without WIP disclaimer.
+     - ONGOING.
+  2. N/A
+  3. N/A
+
+### Are there any issues that the IPMC or ASF Board need to be aware of?
+"""
+
+        self.assertEqual(
+            parser._extract_issues(body),
+            ["Successfully make releases without WIP disclaimer. ONGOING."],
+        )
+
+    def test_extract_issues_reads_past_1200_characters(self) -> None:
+        long_item = "Grow the community " * 80
+        body = f"""Three most important unfinished issues to address before graduating:
+
+  1. {long_item.strip()}
+  2. Make another release.
+
+Date of last release: none
+"""
+
+        issues = parser._extract_issues(body)
+        self.assertEqual(len(issues), 2)
+        self.assertEqual(issues[1], "Make another release.")
 
     def test_parse_report_text_marks_no_report_submitted_source_status(self) -> None:
         report = parser.parse_report_text(

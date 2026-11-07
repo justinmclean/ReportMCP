@@ -24,6 +24,25 @@ class ToolsTests(unittest.TestCase):
         self.assertEqual(result["reports"][0]["mentor_signoff_color"], "neutral")
         self.assertFalse(result["reports"][0]["mentor_signoff_interpretation"]["is_missing_or_risk_metric"])
 
+    def test_failed_refresh_falls_back_to_the_cache(self) -> None:
+        with report_dir() as base:
+            with patch.object(
+                tools,
+                "cache_reports_from_repo",
+                side_effect=TimeoutError("The read operation timed out"),
+            ):
+                result = tools.get_podling_reports("Alpha", cache_dir=str(base), refresh=True)
+
+        self.assertEqual(result["count"], 1)
+        self.assertIn("timed out", result["refresh_warning"])
+
+    def test_successful_refresh_has_no_warning(self) -> None:
+        with report_dir() as base:
+            with patch.object(tools, "cache_reports_from_repo", return_value={"cached_count": 0}):
+                result = tools.get_podling_reports("Alpha", cache_dir=str(base), refresh=True)
+
+        self.assertNotIn("refresh_warning", result)
+
     def test_search_reports_limits_results(self) -> None:
         with report_dir() as base:
             result = tools.search_reports("release", reports_dir=str(base), limit=1)
