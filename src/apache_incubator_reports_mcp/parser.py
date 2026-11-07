@@ -66,7 +66,20 @@ HTML_BLOCK_RE = re.compile(r"</(?:p|div|li|tr|h[1-6])>", re.IGNORECASE)
 TAG_RE = re.compile(r"<[^>]+>")
 SIGNED_OFF_RE = re.compile(r"signed[- ]off[- ]by\s*:?", re.IGNORECASE)
 CHECKBOX_RE = re.compile(r"\[\s*([xX ]?)\s*\]\s*(?:\(([^)]*)\))?\s*([^\n\r]+)")
-LAST_RELEASE_RE = re.compile(r"date of (?:last )?release\s*:?\s*([^\n\r]+)", re.IGNORECASE)
+# The answer can wrap onto further lines; it ends at a blank line or heading.
+LAST_RELEASE_RE = re.compile(
+    r"date of (?:last )?release\s*:?\s*([^\n\r]+(?:\r?\n[ \t]*[^\s#][^\n\r]*)*)", re.IGNORECASE
+)
+REPORT_TITLE_RE = re.compile(r"^#[ \t]+Incubator PMC report for\b", re.IGNORECASE | re.MULTILINE)
+SECTION_DIVIDER_RE = re.compile(r"^-{20}[ \t]*$", re.MULTILINE)
+# The questions of the podling report template, which some podlings write as
+# headings at the same level as the podling's own name.
+TEMPLATE_QUESTION_RE = re.compile(
+    r"^(three most important|are there any issues|how has the|how would you assess"
+    r"|date of (?:last )?release|when were the last|have your mentors|is the ppmc"
+    r"|signed[- ]off[- ]by|ipmc/shepherd notes)",
+    re.IGNORECASE,
+)
 INCUBATING_SINCE_RE = re.compile(r"incubat(?:ing|ion).*?since\s*:?\s*([^\n\r.]+)", re.IGNORECASE)
 
 MENTOR_SIGNOFF_INTERPRETATION = {
@@ -274,6 +287,51 @@ def _sections(text: str) -> list[tuple[int, str, str]]:
     return sections
 
 
+def _podling_sections(text: str, toc_podlings: set[str]) -> list[tuple[int, str, str]]:
+    """Return each podling's heading and report body.
+
+    A podling report ends at the next heading at or above its level, or at
+    the dashed divider between reports. Podlings sometimes write the
+    template's questions as headings at the same level as their own name,
+    such as "## Three most important unfinished issues", so those headings
+    do not end the report.
+    """
+    matches = list(HEADING_RE.finditer(text))
+    sections: list[tuple[int, str, str]] = []
+    for index, match in enumerate(matches):
+        level = len(match.group(1))
+        heading = _strip_markdown(match.group(2))
+        if not _is_podling_section(level, heading, toc_podlings):
+            continue
+        start = match.end()
+        end = len(text)
+        for next_match in matches[index + 1 :]:
+            next_level = len(next_match.group(1))
+            next_heading = _strip_markdown(next_match.group(2))
+            if next_level < level or (
+                next_level == level and not TEMPLATE_QUESTION_RE.match(next_heading)
+            ):
+                end = next_match.start()
+                break
+        divider = SECTION_DIVIDER_RE.search(text, start, end)
+        if divider:
+            end = divider.start()
+        sections.append((level, heading, text[start:end].strip()))
+    return sections
+
+
+def _without_appended_reports(text: str) -> str:
+    """Drop a second Incubator report appended to the same minutes file.
+
+    Some minutes, such as June 2025, carry the previous month's report after
+    their own. Its podling sections would otherwise be read as this month's.
+    """
+    titles = list(REPORT_TITLE_RE.finditer(text))
+    if len(titles) < 2:
+        return text
+    return text[: titles[1].start()].rstrip() + "\n"
+
+
 def _normalize_podling_key(value: str) -> str:
     cleaned = _clean_podling_name(value)
     return re.sub(r"[^a-z0-9]+", "", cleaned.casefold())
@@ -403,7 +461,7 @@ def _extract_first(pattern: re.Pattern[str], body: str) -> str | None:
     match = pattern.search(body)
     if not match:
         return None
-    value = _strip_markdown(match.group(1))
+    value = " ".join(_strip_markdown(match.group(1)).split())
     return value or None
 
 
@@ -446,7 +504,7 @@ def parse_report_text(
     source_status_override: str | None = None,
     source_status_note_override: str | None = None,
 ) -> ParsedReport:
-    normalized = normalize_text(text, suffix)
+    normalized = _without_appended_reports(normalize_text(text, suffix))
     title = _title_from_text(normalized, report_id)
     report_period = report_period_from_text(title, report_id, path)
     if source_status_override is not None:
@@ -458,9 +516,7 @@ def parse_report_text(
     toc_podlings = _table_of_contents_podlings(sections)
     podling_reports: list[PodlingReport] = []
 
-    for level, heading, body in sections:
-        if not _is_podling_section(level, heading, toc_podlings):
-            continue
+    for _level, heading, body in _podling_sections(normalized, toc_podlings):
         podling_reports.append(
             PodlingReport(
                 podling=_clean_podling_name(heading),

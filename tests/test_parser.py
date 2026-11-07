@@ -431,6 +431,112 @@ AGE has been incubating since 2020-04-29.
 
         self.assertEqual([item.podling for item in report.podling_reports], ["AGE"])
 
+    def test_template_questions_as_same_level_headings_stay_in_the_report(self) -> None:
+        text = """# Incubator PMC report for May 2026
+
+## Table of Contents
+[Alpha](#alpha)
+[Bravo](#bravo)
+
+## Alpha
+
+Alpha has been incubating since 2025-04-12.
+
+## Three most important unfinished issues to address before graduating:
+
+1. Grow the committer base.
+2. Make another release.
+
+## Date of last release:
+
+2026-04-25
+
+## Signed-off-by:
+
+- [X] (alpha) Mentor One
+
+--------------------
+## Bravo
+
+Bravo has been incubating since 2024-07-01.
+
+### Three most important unfinished issues to address before graduating:
+
+1. Improve release cadence.
+
+--------------------
+## Charlie
+
+Charlie is new and missing from the table of contents.
+"""
+        report = parser.parse_report_text(text, "board-minutes-2026-05-20", "/tmp/r.txt")
+        alpha, bravo = report.podling_reports
+
+        self.assertEqual(alpha.issues, ["Grow the committer base.", "Make another release."])
+        self.assertEqual(alpha.last_release, "2026-04-25")
+        self.assertEqual(alpha.mentor_signoff_count, 1)
+        self.assertNotIn("Charlie", bravo.body)
+
+    def test_report_ends_at_the_next_heading_even_if_not_in_the_contents(self) -> None:
+        text = """# Incubator PMC report for May 2025
+
+## Table of Contents
+[Alpha](#alpha)
+
+## Alpha
+
+### Three most important unfinished issues to address before graduating:
+
+1. Grow the committer base.
+
+## Bravo
+
+### Signed-off-by:
+
+- [X] (bravo) Mentor Two
+"""
+        report = parser.parse_report_text(text, "board-minutes-2025-05-21", "/tmp/r.txt")
+
+        self.assertNotIn("Mentor Two", report.podling_reports[0].body)
+
+    def test_appended_previous_month_report_is_dropped(self) -> None:
+        text = """# Incubator PMC report for June 2025
+
+## Table of Contents
+[Alpha](#alpha)
+
+## Alpha
+
+Alpha June text.
+
+# Incubator PMC report for May 2025
+
+## Table of Contents
+[Alpha](#alpha)
+
+## Alpha
+
+Alpha May text.
+"""
+        report = parser.parse_report_text(text, "board-minutes-2025-06-18", "/tmp/r.txt")
+
+        self.assertEqual(len(report.podling_reports), 1)
+        self.assertIn("June", report.podling_reports[0].body)
+
+    def test_last_release_reads_a_wrapped_answer(self) -> None:
+        body = """### Date of last release:
+
+2025-06-04 (0.3.0-incubating). rc1 for 0.4.0-incubating was cancelled on
+2026-07-27; rc2 is in preparation
+
+### When were the last committers or PPMC members elected?
+"""
+        self.assertEqual(
+            parser._extract_first(parser.LAST_RELEASE_RE, body),
+            "2025-06-04 (0.3.0-incubating). rc1 for 0.4.0-incubating was cancelled on "
+            "2026-07-27; rc2 is in preparation",
+        )
+
     def test_cache_report_url_accepts_direct_board_minutes_urls(self) -> None:
         incubator_report = """# Incubator PMC report for June 2025
 
