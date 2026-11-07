@@ -22,7 +22,9 @@ class ToolsTests(unittest.TestCase):
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["reports"][0]["observed_mentor_signoff_count"], 1)
         self.assertEqual(result["reports"][0]["mentor_signoff_color"], "neutral")
-        self.assertFalse(result["reports"][0]["mentor_signoff_interpretation"]["is_missing_or_risk_metric"])
+        self.assertFalse(
+            result["reports"][0]["mentor_signoff_interpretation"]["is_missing_or_risk_metric"]
+        )
 
     def test_failed_refresh_falls_back_to_the_cache(self) -> None:
         with report_dir() as base:
