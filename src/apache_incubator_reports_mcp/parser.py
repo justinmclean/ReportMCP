@@ -68,14 +68,21 @@ SIGNED_OFF_RE = re.compile(r"signed[- ]off[- ]by\s*:?", re.IGNORECASE)
 CHECKBOX_RE = re.compile(r"\[\s*([xX ]?)\s*\]\s*(?:\(([^)]*)\))?\s*([^\n\r]+)")
 # The answer can wrap onto further lines; it ends at a blank line or heading.
 LAST_RELEASE_RE = re.compile(
-    r"date of (?:last )?release\s*:?\s*([^\n\r]+(?:\r?\n[ \t]*[^\s#][^\n\r]*)*)", re.IGNORECASE
+    r"date of (?:last )?release\s*:?\s*([^\s#:][^\n\r]*(?:\r?\n[ \t]*[^\s#][^\n\r]*)*)",
+    re.IGNORECASE,
+)
+# "Three most important unfinished issues", "Two ..." when a podling edits
+# the template, the older "three most important issues to address in the
+# move", and headings wrapped over two lines.
+ISSUES_HEADING_RE = re.compile(
+    r"\b(?:\w+\s+)?most\s+important\s+(?:unfinished\s+)?issues", re.IGNORECASE
 )
 REPORT_TITLE_RE = re.compile(r"^#[ \t]+Incubator PMC report for\b", re.IGNORECASE | re.MULTILINE)
 SECTION_DIVIDER_RE = re.compile(r"^-{20}[ \t]*$", re.MULTILINE)
 # The questions of the podling report template, which some podlings write as
 # headings at the same level as the podling's own name.
 TEMPLATE_QUESTION_RE = re.compile(
-    r"^(three most important|are there any issues|how has the|how would you assess"
+    r"^(\w+ most important unfinished|are there any issues|how has the|how would you assess"
     r"|date of (?:last )?release|when were the last|have your mentors|is the ppmc"
     r"|signed[- ]off[- ]by|ipmc/shepherd notes)",
     re.IGNORECASE,
@@ -388,9 +395,10 @@ def _extract_issues(body: str) -> list[str]:
     dropped.
     """
     lower = body.casefold()
-    start = lower.find("three most important")
-    if start < 0:
+    heading = ISSUES_HEADING_RE.search(lower)
+    if heading is None:
         return []
+    start = heading.start()
     items: list[str] = []
     current: list[str] = []
     item_indent: int | None = None
