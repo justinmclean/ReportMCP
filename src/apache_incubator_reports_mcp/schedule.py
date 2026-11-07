@@ -33,10 +33,7 @@ def report_due_dates(year: int, month: int) -> dict[str, Any]:
 
 
 def report_due_date_schedule(year: int, month: int, count: int) -> list[dict[str, Any]]:
-    return [
-        report_due_dates(*add_months(year, month, offset))
-        for offset in range(count)
-    ]
+    return [report_due_dates(*add_months(year, month, offset)) for offset in range(count)]
 
 
 def _escape_ical_text(value: str) -> str:

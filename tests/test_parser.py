@@ -595,7 +595,8 @@ Signed-off-by:
 
   [x] (bravo) Mentor Three
 """
-        board_minutes = """The Apache Software Foundation
+        board_minutes = (
+            """The Apache Software Foundation
 
 Board of Directors Meeting Minutes
 
@@ -608,17 +609,27 @@ June 18, 2025
 -----------------------------------------
 Attachment AG: Report from the Apache Incubator Project  [Justin Mclean]
 
-""" + incubator_report + """
+"""
+            + incubator_report
+            + """
 -----------------------------------------
 Attachment AH: Report from the Apache James Project  [Benoit Tellier]
 """
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("urllib.request.urlopen", return_value=type("Response", (), {
-                "headers": {"content-type": "text/plain"},
-                "__enter__": lambda self: self,
-                "__exit__": lambda self, *_args: None,
-                "read": lambda self: board_minutes.encode("utf-8"),
-            })()):
+            with patch(
+                "urllib.request.urlopen",
+                return_value=type(
+                    "Response",
+                    (),
+                    {
+                        "headers": {"content-type": "text/plain"},
+                        "__enter__": lambda self: self,
+                        "__exit__": lambda self, *_args: None,
+                        "read": lambda self: board_minutes.encode("utf-8"),
+                    },
+                )(),
+            ):
                 result = parser.cache_report_url(
                     "https://apache.org/foundation/records/minutes/2025/board_minutes_2025_06_18.txt",
                     cache_dir=temp_dir,
@@ -660,12 +671,19 @@ Attachment AH: Report from the Apache James Project  [Benoit Tellier]
 """
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("urllib.request.urlopen", return_value=type("Response", (), {
-                "headers": {"content-type": "text/plain"},
-                "__enter__": lambda self: self,
-                "__exit__": lambda self, *_args: None,
-                "read": lambda self: board_minutes.encode("utf-8"),
-            })()):
+            with patch(
+                "urllib.request.urlopen",
+                return_value=type(
+                    "Response",
+                    (),
+                    {
+                        "headers": {"content-type": "text/plain"},
+                        "__enter__": lambda self: self,
+                        "__exit__": lambda self, *_args: None,
+                        "read": lambda self: board_minutes.encode("utf-8"),
+                    },
+                )(),
+            ):
                 result = parser.cache_report_url(
                     "https://apache.org/foundation/records/minutes/2025/board_minutes_2025_02_19.txt",
                     cache_dir=temp_dir,
@@ -688,12 +706,19 @@ July 17, 2024
 """
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("urllib.request.urlopen", return_value=type("Response", (), {
-                "headers": {"content-type": "text/plain"},
-                "__enter__": lambda self: self,
-                "__exit__": lambda self, *_args: None,
-                "read": lambda self: board_minutes.encode("utf-8"),
-            })()):
+            with patch(
+                "urllib.request.urlopen",
+                return_value=type(
+                    "Response",
+                    (),
+                    {
+                        "headers": {"content-type": "text/plain"},
+                        "__enter__": lambda self: self,
+                        "__exit__": lambda self, *_args: None,
+                        "read": lambda self: board_minutes.encode("utf-8"),
+                    },
+                )(),
+            ):
                 result = parser.cache_report_url(
                     "https://apache.org/foundation/records/minutes/2024/board_minutes_2024_07_17.txt",
                     cache_dir=temp_dir,
@@ -737,12 +762,19 @@ Attachment AH: Report from the Apache James Project  [Benoit Tellier]
 """
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("urllib.request.urlopen", return_value=type("Response", (), {
-                "headers": {"content-type": "text/plain"},
-                "__enter__": lambda self: self,
-                "__exit__": lambda self, *_args: None,
-                "read": lambda self: board_minutes.encode("utf-8"),
-            })()):
+            with patch(
+                "urllib.request.urlopen",
+                return_value=type(
+                    "Response",
+                    (),
+                    {
+                        "headers": {"content-type": "text/plain"},
+                        "__enter__": lambda self: self,
+                        "__exit__": lambda self, *_args: None,
+                        "read": lambda self: board_minutes.encode("utf-8"),
+                    },
+                )(),
+            ):
                 result = parser.cache_report_url(
                     "https://apache.org/foundation/records/minutes/2025/board_minutes_2025_02_19.txt",
                     cache_dir=temp_dir,

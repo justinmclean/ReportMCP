@@ -359,6 +359,8 @@ def _table_of_contents_podlings(sections: list[tuple[int, str, str]]) -> set[str
             names.add(_normalize_podling_key(match.group("label")))
         return names
     return set()
+
+
 def _is_podling_section(
     level: int,
     heading: str,
@@ -845,11 +847,7 @@ def cache_reports_from_repo(
     that are not cached yet. That keeps a refresh to a few requests.
     """
     urls = discover_report_urls(repo_url, years)
-    selected = [
-        url
-        for url in urls
-        if _within_years_window(report_period_from_text(url), years)
-    ]
+    selected = [url for url in urls if _within_years_window(report_period_from_text(url), years)]
     skipped = 0
     target_dir = Path(cache_dir).expanduser().resolve()
     without_report = _read_minutes_without_report(target_dir)
