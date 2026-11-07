@@ -537,6 +537,27 @@ Alpha May text.
             "2026-07-27; rc2 is in preparation",
         )
 
+    def test_issues_heading_with_another_count(self) -> None:
+        body = """### Two most important unfinished issues to address before graduating:
+
+1. Cultivate a more diverse community.
+2. Implement predictable release cycles.
+
+### Are there any issues that the IPMC or ASF Board need to be aware of?
+"""
+        self.assertEqual(
+            parser._extract_issues(body),
+            ["Cultivate a more diverse community.", "Implement predictable release cycles."],
+        )
+
+    def test_empty_last_release_does_not_read_the_next_heading(self) -> None:
+        body = """### Date of last release:
+
+### When were the last committers or PPMC members elected?
+  At founding
+"""
+        self.assertIsNone(parser._extract_first(parser.LAST_RELEASE_RE, body))
+
     def test_cache_report_url_accepts_direct_board_minutes_urls(self) -> None:
         incubator_report = """# Incubator PMC report for June 2025
 
